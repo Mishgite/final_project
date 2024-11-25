@@ -1,16 +1,16 @@
 import sys
 import cv2
-import torch
 from deep_translator import GoogleTranslator
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QTextEdit, QHBoxLayout
+    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QTextEdit, QHBoxLayout, QComboBox
 )
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt
-from ultralytics import YOLO  # Используем предобученную модель YOLOv8
+from ultralytics import YOLO  # Используем предобученные модели YOLOv8
 
 
 def translate_to_russian(english_text):
+    """Перевод текста с английского на русский."""
     translated = GoogleTranslator(source='en', target='ru').translate(english_text)
     return translated
 
@@ -21,8 +21,9 @@ class ObjectDetectionApp(QMainWindow):
         self.setWindowTitle("Распознавание объектов")
         self.setGeometry(100, 100, 1200, 800)  # Увеличиваем размеры окна
 
-        # Загрузка модели YOLO
-        self.model = YOLO('yolov8n.pt')  # Лёгкая версия YOLOv8
+        # Инициализируем переменные для модели и текущего изображения
+        self.model = None
+        self.image_path = None
 
         # Основной виджет
         self.central_widget = QWidget()
@@ -31,6 +32,17 @@ class ObjectDetectionApp(QMainWindow):
         # Макет
         self.layout = QVBoxLayout()
         self.central_widget.setLayout(self.layout)
+
+        # Выпадающий список для выбора модели
+        self.model_selector = QComboBox()
+        self.model_selector.addItems([
+            "yolov8n.pt (Лёгкая модель)",
+            "yolov8s.pt (Быстрая модель)",
+            "yolov8m.pt (Средняя модель)",
+            "yolov8l.pt (Точная модель)"
+        ])
+        self.model_selector.currentIndexChanged.connect(self.load_selected_model)
+        self.layout.addWidget(self.model_selector)
 
         # Метка для изображения (увеличенная)
         self.image_label = QLabel("Выберите изображение")
@@ -59,8 +71,18 @@ class ObjectDetectionApp(QMainWindow):
         self.result_text.setReadOnly(True)
         self.layout.addWidget(self.result_text)
 
-        # Переменная для хранения пути к изображению
-        self.image_path = None
+        # Загрузить модель по умолчанию
+        self.load_selected_model()
+
+    def load_selected_model(self):
+        """Загружает выбранную модель YOLO."""
+        model_name = self.model_selector.currentText().split(" ")[0]  # Извлекаем имя файла модели
+        self.result_text.setText(f"Загрузка модели: {model_name}...")
+        try:
+            self.model = YOLO(f'models/{model_name}')
+            self.result_text.append(f"Модель {model_name} успешно загружена.")
+        except Exception as e:
+            self.result_text.setText(f"Ошибка загрузки модели: {e}")
 
     def select_image(self):
         """Открывает диалог выбора изображения."""
@@ -75,6 +97,10 @@ class ObjectDetectionApp(QMainWindow):
         """Распознаёт объекты на выбранном изображении."""
         if not self.image_path:
             self.result_text.setText("Сначала выберите изображение.")
+            return
+
+        if not self.model:
+            self.result_text.setText("Модель не загружена. Выберите модель из списка.")
             return
 
         # Загрузка изображения
