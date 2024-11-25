@@ -8,6 +8,11 @@ from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt
 from ultralytics import YOLO  # Используем предобученные модели YOLOv8
 
+model = {'Лёгкая модель': 'yolov8n.pt',
+         'Быстрая модель' : 'yolov8s.pt',
+         'Средняя модель' : 'yolov8m.pt',
+         'Точная модель' : 'yolov8l.pt'}
+
 
 def translate_to_russian(english_text):
     """Перевод текста с английского на русский."""
@@ -35,12 +40,7 @@ class ObjectDetectionApp(QMainWindow):
 
         # Выпадающий список для выбора модели
         self.model_selector = QComboBox()
-        self.model_selector.addItems([
-            "yolov8n.pt (Лёгкая модель)",
-            "yolov8s.pt (Быстрая модель)",
-            "yolov8m.pt (Средняя модель)",
-            "yolov8l.pt (Точная модель)"
-        ])
+        self.model_selector.addItems(model.keys())
         self.model_selector.currentIndexChanged.connect(self.load_selected_model)
         self.layout.addWidget(self.model_selector)
 
@@ -76,7 +76,7 @@ class ObjectDetectionApp(QMainWindow):
 
     def load_selected_model(self):
         """Загружает выбранную модель YOLO."""
-        model_name = self.model_selector.currentText().split(" ")[0]  # Извлекаем имя файла модели
+        model_name = model[self.model_selector.currentText()]  # Извлекаем имя файла модели
         self.result_text.setText(f"Загрузка модели: {model_name}...")
         try:
             self.model = YOLO(f'models/{model_name}')
