@@ -1,17 +1,21 @@
 import sys
 import cv2
+import pytesseract
 from deep_translator import GoogleTranslator
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QTextEdit, QHBoxLayout, QComboBox
 )
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt
-from ultralytics import YOLO  # Используем предобученные модели YOLOv8
+from ultralytics import YOLO
+
+# Указываем путь к исполняемому файлу Tesseract (необходимо для Windows)
+pytesseract.pytesseract.tesseract_cmd = r'C:\Users\75942\PycharmProjects\final_project\Tesseract-OCR\tesseract.exe'
 
 model = {'Лёгкая модель': 'yolov8n.pt',
-         'Быстрая модель' : 'yolov8s.pt',
-         'Средняя модель' : 'yolov8m.pt',
-         'Точная модель' : 'yolov8l.pt'}
+         'Быстрая модель': 'yolov8s.pt',
+         'Средняя модель': 'yolov8m.pt',
+         'Точная модель': 'yolov8l.pt'}
 
 
 def translate_to_russian(english_text):
@@ -23,8 +27,8 @@ def translate_to_russian(english_text):
 class ObjectDetectionApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Распознавание объектов")
-        self.setGeometry(100, 100, 1200, 800)  # Увеличиваем размеры окна
+        self.setWindowTitle("Распознавание объектов и текста")
+        self.setGeometry(100, 100, 1200, 800)
 
         # Инициализируем переменные для модели и текущего изображения
         self.model = None
@@ -44,11 +48,11 @@ class ObjectDetectionApp(QMainWindow):
         self.model_selector.currentIndexChanged.connect(self.load_selected_model)
         self.layout.addWidget(self.model_selector)
 
-        # Метка для изображения (увеличенная)
+        # Метка для изображения
         self.image_label = QLabel("Выберите изображение")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setStyleSheet("border: 1px solid black;")
-        self.image_label.setFixedSize(1000, 600)  # Устанавливаем большой фиксированный размер
+        self.image_label.setFixedSize(1000, 600)
         self.layout.addWidget(self.image_label)
 
         # Горизонтальный макет для кнопок
@@ -64,6 +68,11 @@ class ObjectDetectionApp(QMainWindow):
         self.detect_button.clicked.connect(self.detect_objects)
         button_layout.addWidget(self.detect_button)
 
+        # Кнопка для распознавания текста
+        self.ocr_button = QPushButton("Распознать текст")
+        self.ocr_button.clicked.connect(self.recognize_text)
+        button_layout.addWidget(self.ocr_button)
+
         self.layout.addLayout(button_layout)
 
         # Поле для вывода результатов
@@ -76,7 +85,7 @@ class ObjectDetectionApp(QMainWindow):
 
     def load_selected_model(self):
         """Загружает выбранную модель YOLO."""
-        model_name = model[self.model_selector.currentText()]  # Извлекаем имя файла модели
+        model_name = model[self.model_selector.currentText()]
         self.result_text.setText(f"Загрузка модели: {model_name}...")
         try:
             self.model = YOLO(f'models/{model_name}')
@@ -110,7 +119,7 @@ class ObjectDetectionApp(QMainWindow):
         results = self.model(image)
 
         # Рисуем результаты на изображении
-        annotated_image = results[0].plot()  # Наносим аннотации на изображение
+        annotated_image = results[0].plot()
 
         # Конвертация изображения для отображения в PyQt
         height, width, channel = annotated_image.shape
@@ -122,7 +131,7 @@ class ObjectDetectionApp(QMainWindow):
         self.image_label.setPixmap(pixmap.scaled(self.image_label.width(), self.image_label.height(), Qt.KeepAspectRatio))
 
         # Обработка результатов и вывод в текстовое поле
-        detected_objects = results[0].boxes.data.cpu().numpy()  # Данные о найденных объектах
+        detected_objects = results[0].boxes.data.cpu().numpy()
         self.result_text.clear()
         if detected_objects.size > 0:
             self.result_text.append("Распознанные объекты:")
@@ -132,6 +141,35 @@ class ObjectDetectionApp(QMainWindow):
                 self.result_text.append(f"- {translate_to_russian(class_name)}: {confidence:.2f}, координаты: ({x1:.0f}, {y1:.0f}), ({x2:.0f}, {y2:.0f})")
         else:
             self.result_text.append("Объекты не обнаружены.")
+
+    def recognize_text(self):
+        """Распознаёт текст на выбранном изображении."""
+        if not self.image_path:
+            self.result_text.setText("Сначала выберите изображение.")
+            return
+
+        # Загрузка изображения
+        image = cv2.imread(self.image_path)
+
+        try:
+            # Предварительная обработка изображения
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            _, binary = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+            processed_image = cv2.GaussianBlur(binary, (1, 1), 0)
+
+            # Увеличение размера изображения
+            scale_percent = 150
+            width = int(processed_image.shape[1] * scale_percent / 100)
+            height = int(processed_image.shape[0] * scale_percent / 100)
+            resized_image = cv2.resize(processed_image, (width, height), interpolation=cv2.INTER_CUBIC)
+
+            # Распознавание текста
+            custom_config = r'--oem 3 --psm 6'
+            text = pytesseract.image_to_string(resized_image, lang='rus+eng', config=custom_config)
+            self.result_text.setText("Распознанный текст:\n" + text)
+
+        except Exception as e:
+            self.result_text.setText(f"Ошибка распознавания текста: {e}")
 
 
 if __name__ == "__main__":
