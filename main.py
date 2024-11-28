@@ -1,6 +1,5 @@
 import sys
 import cv2
-import pytesseract
 from deep_translator import GoogleTranslator
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QTextEdit, QHBoxLayout, QComboBox
@@ -8,8 +7,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt
 from ultralytics import YOLO
-
-pytesseract.pytesseract.tesseract_cmd = r'Tesseract-OCR\tesseract.exe'
+import easyocr
 
 model = {'Лёгкая модель': 'yolov8n.pt',
          'Быстрая модель': 'yolov8s.pt',
@@ -59,7 +57,7 @@ class ObjectDetectionApp(QMainWindow):
         button_layout.addWidget(self.detect_button)
 
         self.ocr_button = QPushButton("Распознать текст")
-        self.ocr_button.clicked.connect(self.recognize_text)
+        self.ocr_button.clicked.connect(self.recognize_text_with_easyocr)
         button_layout.addWidget(self.ocr_button)
 
         self.layout.addLayout(button_layout)
@@ -121,28 +119,27 @@ class ObjectDetectionApp(QMainWindow):
         else:
             self.result_text.append("Объекты не обнаружены.")
 
-    def recognize_text(self):
-        """Распознаёт текст на выбранном изображении."""
+    def recognize_text_with_easyocr(self):
+        """Распознаёт текст на выбранном изображении с помощью EasyOCR."""
         if not self.image_path:
             self.result_text.setText("Сначала выберите изображение.")
             return
 
-        image = cv2.imread(self.image_path)
-
         try:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            _, binary = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-            processed_image = cv2.GaussianBlur(binary, (1, 1), 0)
+            # Инициализация EasyOCR
+            reader = easyocr.Reader(['ru', 'en'], gpu=False)  # Включите GPU, если доступен
 
-            scale_percent = 150
-            width = int(processed_image.shape[1] * scale_percent / 100)
-            height = int(processed_image.shape[0] * scale_percent / 100)
-            resized_image = cv2.resize(processed_image, (width, height), interpolation=cv2.INTER_CUBIC)
+            # Распознавание текста
+            results = reader.readtext(self.image_path, detail=1)
 
-            custom_config = r'--oem 3 --psm 6'
-            text = pytesseract.image_to_string(resized_image, lang='rus+eng', config=custom_config)
-            self.result_text.setText("Распознанный текст:\n" + text)
-
+            # Вывод текста
+            self.result_text.clear()
+            if results:
+                self.result_text.append("Распознанный текст:")
+                for bbox, text, confidence in results:
+                    self.result_text.append(f"{text} (доверие: {confidence:.2f})")
+            else:
+                self.result_text.append("Текст не обнаружен.")
         except Exception as e:
             self.result_text.setText(f"Ошибка распознавания текста: {e}")
 
