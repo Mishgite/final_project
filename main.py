@@ -9,10 +9,13 @@ from PyQt5.QtCore import Qt
 from ultralytics import YOLO
 import easyocr
 
-model = {'Лёгкая модель': 'yolov8n.pt',
-         'Быстрая модель': 'yolov8s.pt',
-         'Средняя модель': 'yolov8m.pt',
-         'Точная модель': 'yolov8l.pt'}
+model = {
+    'YOLOv8 Лёгкая': 'yolov8n.pt',
+    'YOLOv8 Быстрая': 'yolov8s.pt',
+    'YOLOv8 Средняя': 'yolov8m.pt',
+    'YOLOv8 Точная': 'yolov8l.pt',
+    'YOLOv8 Сверх точная': 'yolov8x.pt',
+}
 
 
 def translate_to_russian(english_text):
@@ -69,11 +72,16 @@ class ObjectDetectionApp(QMainWindow):
         self.load_selected_model()
 
     def load_selected_model(self):
-        model_name = model[self.model_selector.currentText()]
+        model_name = self.model_selector.currentText()
+        model_path = model[model_name]
         self.result_text.setText(f"Загрузка модели: {model_name}...")
+
         try:
-            self.model = YOLO(f'models/{model_name}')
-            self.result_text.append(f"Модель {model_name} успешно загружена.")
+            if 'yolov8' in model_path:
+                self.model = YOLO(f'models/{model_path}')
+                self.result_text.append(f"Модель {model_name} успешно загружена.")
+            else:
+                self.result_text.append(f"Модель {model_name} не поддерживается.")
         except Exception as e:
             self.result_text.setText(f"Ошибка загрузки модели: {e}")
 
@@ -94,7 +102,6 @@ class ObjectDetectionApp(QMainWindow):
             self.result_text.setText("Модель не загружена. Выберите модель из списка.")
             return
 
-        # Загрузка изображения
         image = cv2.imread(self.image_path)
 
         results = self.model(image)
@@ -120,19 +127,15 @@ class ObjectDetectionApp(QMainWindow):
             self.result_text.append("Объекты не обнаружены.")
 
     def recognize_text_with_easyocr(self):
-        """Распознаёт текст на выбранном изображении с помощью EasyOCR."""
         if not self.image_path:
             self.result_text.setText("Сначала выберите изображение.")
             return
 
         try:
-            # Инициализация EasyOCR
             reader = easyocr.Reader(['ru', 'en'], gpu=False)  # Включите GPU, если доступен
 
-            # Распознавание текста
             results = reader.readtext(self.image_path, detail=1)
 
-            # Вывод текста
             self.result_text.clear()
             if results:
                 self.result_text.append("Распознанный текст:")
