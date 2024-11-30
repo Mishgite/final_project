@@ -17,10 +17,21 @@ model = {
     'YOLOv8 Сверх точная': 'yolov8x.pt',
 }
 
+languages = {
+    "Русский": "ru",
+    "Английский": "en",
+    "Французский": "fr",
+    "Немецкий": "de",
+    "Испанский": "es"
+}
 
-def translate_to_russian(english_text):
-    translated = GoogleTranslator(source='en', target='ru').translate(english_text)
-    return translated
+
+def translate_text(text, target_language):
+    try:
+        translated = GoogleTranslator(source='auto', target=target_language).translate(text)
+        return translated
+    except Exception as e:
+        return f"Ошибка перевода: {e}"
 
 
 class ObjectDetectionApp(QMainWindow):
@@ -63,7 +74,15 @@ class ObjectDetectionApp(QMainWindow):
         self.ocr_button.clicked.connect(self.recognize_text_with_easyocr)
         button_layout.addWidget(self.ocr_button)
 
+        self.translate_button = QPushButton("Перевести текст")
+        self.translate_button.clicked.connect(self.translate_text)
+        button_layout.addWidget(self.translate_button)
+
         self.layout.addLayout(button_layout)
+
+        self.language_selector = QComboBox()
+        self.language_selector.addItems(languages.keys())
+        self.layout.addWidget(self.language_selector)
 
         self.result_text = QTextEdit()
         self.result_text.setReadOnly(True)
@@ -122,7 +141,7 @@ class ObjectDetectionApp(QMainWindow):
             for box in detected_objects:
                 x1, y1, x2, y2, confidence, class_id = box
                 class_name = self.model.names[int(class_id)]
-                self.result_text.append(f"- {translate_to_russian(class_name)}: {confidence:.2f}, координаты: ({x1:.0f}, {y1:.0f}), ({x2:.0f}, {y2:.0f})")
+                self.result_text.append(f"- {translate_text(class_name, 'ru')}: {confidence:.2f}, координаты: ({x1:.0f}, {y1:.0f}), ({x2:.0f}, {y2:.0f})")
         else:
             self.result_text.append("Объекты не обнаружены.")
 
@@ -132,7 +151,7 @@ class ObjectDetectionApp(QMainWindow):
             return
 
         try:
-            reader = easyocr.Reader(['ru', 'en'], gpu=False)  # Включите GPU, если доступен
+            reader = easyocr.Reader(['ru', 'en'], gpu=False)
 
             results = reader.readtext(self.image_path, detail=1)
 
@@ -145,6 +164,21 @@ class ObjectDetectionApp(QMainWindow):
                 self.result_text.append("Текст не обнаружен.")
         except Exception as e:
             self.result_text.setText(f"Ошибка распознавания текста: {e}")
+
+    def translate_text(self):
+        current_text = self.result_text.toPlainText()
+        if not current_text.strip():
+            self.result_text.setText("Сначала распознайте текст.")
+            return
+
+        selected_language = self.language_selector.currentText()
+        target_language = languages[selected_language]
+
+        try:
+            translated_text = translate_text(current_text, target_language)
+            self.result_text.setText(f"Переведённый текст ({selected_language}):\n{translated_text}")
+        except Exception as e:
+            self.result_text.setText(f"Ошибка перевода текста: {e}")
 
 
 if __name__ == "__main__":
