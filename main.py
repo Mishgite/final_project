@@ -2,7 +2,7 @@ import sys
 import cv2
 from deep_translator import GoogleTranslator
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QComboBox, QGroupBox, QStatusBar
+    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QComboBox, QGroupBox, QStatusBar, QTabWidget, QSlider, QSpinBox
 )
 from PyQt5.QtGui import QPixmap, QImage, QIcon
 from PyQt5.QtCore import Qt
@@ -42,11 +42,27 @@ class ObjectDetectionApp(QMainWindow):
 
         self.model = None
         self.image_path = None
+        self.conf_threshold = 0.5  # Порог уверенности
+        self.input_size = 640  # Размер входного изображения
 
         # Центральный виджет и основной макет
-        self.central_widget = QWidget()
+        self.central_widget = QTabWidget()  # Используем QTabWidget
         self.setCentralWidget(self.central_widget)
-        main_layout = QVBoxLayout(self.central_widget)
+
+        # Вкладки
+        self.main_tab = QWidget()
+        self.settings_tab = QWidget()
+
+        self.central_widget.addTab(self.main_tab, "Главная")
+        self.central_widget.addTab(self.settings_tab, "Настройки")
+
+        self.init_main_tab()
+        self.init_settings_tab()
+
+        self.load_selected_model()
+
+    def init_main_tab(self):
+        main_layout = QVBoxLayout(self.main_tab)
 
         # Панель выбора модели
         self.model_group = QGroupBox("Выбор модели")
@@ -116,7 +132,28 @@ class ObjectDetectionApp(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
-        self.load_selected_model()
+    def init_settings_tab(self):
+        settings_layout = QVBoxLayout(self.settings_tab)
+
+        # Настройка порога
+        conf_group = QGroupBox("Порог уверенности")
+        conf_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        conf_layout = QVBoxLayout()
+        self.conf_slider = QSlider(Qt.Horizontal)
+        self.conf_slider.setRange(10, 100)
+        self.conf_slider.setValue(int(self.conf_threshold * 100))
+        self.conf_slider.valueChanged.connect(self.update_conf_threshold)
+        conf_layout.addWidget(QLabel("Установите порог уверенности:"))
+        conf_layout.addWidget(self.conf_slider)
+        conf_group.setLayout(conf_layout)
+        settings_layout.addWidget(conf_group)
+
+
+        settings_layout.addStretch()
+
+    def update_conf_threshold(self, value):
+        self.conf_threshold = value / 100.0
+        self.status_bar.showMessage(f"Порог уверенности обновлён: {self.conf_threshold:.2f}")
 
     def load_selected_model(self):
         model_name = self.model_selector.currentText()
@@ -148,7 +185,7 @@ class ObjectDetectionApp(QMainWindow):
             return
 
         image = cv2.imread(self.image_path)
-        results = self.model(image)
+        results = self.model.predict(image, conf=self.conf_threshold, imgsz=self.input_size)
         annotated_image = results[0].plot()
 
         height, width, channel = annotated_image.shape
