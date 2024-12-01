@@ -2,14 +2,13 @@ import sys
 import cv2
 from deep_translator import GoogleTranslator
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QComboBox, QGroupBox
+    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QComboBox, QGroupBox, QStatusBar
 )
-from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtGui import QPixmap, QImage, QIcon
 from PyQt5.QtCore import Qt
 from ultralytics import YOLO
 import easyocr
 
-# Модели и языки
 model = {
     'YOLOv8 Лёгкая': 'yolov8n.pt',
     'YOLOv8 Быстрая': 'yolov8s.pt',
@@ -44,12 +43,14 @@ class ObjectDetectionApp(QMainWindow):
         self.model = None
         self.image_path = None
 
+        # Центральный виджет и основной макет
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-
         main_layout = QVBoxLayout(self.central_widget)
 
+        # Панель выбора модели
         self.model_group = QGroupBox("Выбор модели")
+        self.model_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         model_layout = QVBoxLayout()
         self.model_selector = QComboBox()
         self.model_selector.addItems(model.keys())
@@ -58,63 +59,75 @@ class ObjectDetectionApp(QMainWindow):
         self.model_group.setLayout(model_layout)
         main_layout.addWidget(self.model_group)
 
+        # Панель изображения
         self.image_group = QGroupBox("Изображение")
+        self.image_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         image_layout = QVBoxLayout()
         self.image_label = QLabel("Выберите изображение")
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setStyleSheet("border: 1px solid black;")
+        self.image_label.setStyleSheet("border: 2px solid #4CAF50; background-color: #f0f0f0;")
         self.image_label.setFixedSize(1000, 600)
         image_layout.addWidget(self.image_label)
         self.image_group.setLayout(image_layout)
         main_layout.addWidget(self.image_group)
 
+        # Кнопки действий
         self.button_group = QGroupBox("Действия")
+        self.button_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         button_layout = QHBoxLayout()
         self.select_button = QPushButton("Выбрать изображение")
+        self.select_button.setIcon(QIcon("icons/select.png"))
         self.select_button.clicked.connect(self.select_image)
         button_layout.addWidget(self.select_button)
 
         self.detect_button = QPushButton("Распознать объекты")
+        self.detect_button.setIcon(QIcon("icons/detect.png"))
         self.detect_button.clicked.connect(self.detect_objects)
         button_layout.addWidget(self.detect_button)
 
         self.ocr_button = QPushButton("Распознать текст")
+        self.ocr_button.setIcon(QIcon("icons/ocr.png"))
         self.ocr_button.clicked.connect(self.recognize_text_with_easyocr)
         button_layout.addWidget(self.ocr_button)
 
         self.translate_button = QPushButton("Перевести текст")
+        self.translate_button.setIcon(QIcon("icons/translate.png"))
         self.translate_button.clicked.connect(self.translate_text)
         button_layout.addWidget(self.translate_button)
 
         self.button_group.setLayout(button_layout)
         main_layout.addWidget(self.button_group)
 
+        # Результаты
         self.result_group = QGroupBox("Результаты")
+        self.result_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         result_layout = QVBoxLayout()
         self.language_selector = QComboBox()
         self.language_selector.addItems(languages.keys())
         result_layout.addWidget(self.language_selector)
         self.result_text = QTextEdit()
+        self.result_text.setStyleSheet("font-size: 14px; background-color: #f9f9f9;")
         self.result_text.setReadOnly(True)
         result_layout.addWidget(self.result_text)
         self.result_group.setLayout(result_layout)
         main_layout.addWidget(self.result_group)
+
+        # Панель состояния
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
 
         self.load_selected_model()
 
     def load_selected_model(self):
         model_name = self.model_selector.currentText()
         model_path = model[model_name]
-        self.result_text.setText(f"Загрузка модели: {model_name}...")
+        self.status_bar.showMessage(f"Загрузка модели: {model_name}...")
 
         try:
-            if 'yolov8' in model_path:
-                self.model = YOLO(f'models/{model_path}')
-                self.result_text.append(f"Модель {model_name} успешно загружена.")
-            else:
-                self.result_text.append(f"Модель {model_name} не поддерживается.")
+            self.model = YOLO(f'models/{model_path}')
+            self.status_bar.showMessage(f"Модель {model_name} успешно загружена.", 5000)
         except Exception as e:
-            self.result_text.setText(f"Ошибка загрузки модели: {e}")
+            self.status_bar.showMessage(f"Ошибка загрузки модели: {e}")
 
     def select_image(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Выберите изображение", "", "Images (*.png *.jpg *.jpeg *.bmp)")
@@ -123,6 +136,7 @@ class ObjectDetectionApp(QMainWindow):
             pixmap = QPixmap(self.image_path)
             self.image_label.setPixmap(pixmap.scaled(self.image_label.width(), self.image_label.height(), Qt.KeepAspectRatio))
             self.result_text.clear()
+            self.status_bar.showMessage("Изображение выбрано.")
 
     def detect_objects(self):
         if not self.image_path:
