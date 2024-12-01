@@ -2,13 +2,14 @@ import sys
 import cv2
 from deep_translator import GoogleTranslator
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QTextEdit, QHBoxLayout, QComboBox
+    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QComboBox, QGroupBox
 )
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt
 from ultralytics import YOLO
 import easyocr
 
+# Модели и языки
 model = {
     'YOLOv8 Лёгкая': 'yolov8n.pt',
     'YOLOv8 Быстрая': 'yolov8s.pt',
@@ -38,7 +39,7 @@ class ObjectDetectionApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Распознавание объектов и текста")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(0, 0, 1200, 800)
 
         self.model = None
         self.image_path = None
@@ -46,22 +47,29 @@ class ObjectDetectionApp(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
 
-        self.layout = QVBoxLayout()
-        self.central_widget.setLayout(self.layout)
+        main_layout = QVBoxLayout(self.central_widget)
 
+        self.model_group = QGroupBox("Выбор модели")
+        model_layout = QVBoxLayout()
         self.model_selector = QComboBox()
         self.model_selector.addItems(model.keys())
         self.model_selector.currentIndexChanged.connect(self.load_selected_model)
-        self.layout.addWidget(self.model_selector)
+        model_layout.addWidget(self.model_selector)
+        self.model_group.setLayout(model_layout)
+        main_layout.addWidget(self.model_group)
 
+        self.image_group = QGroupBox("Изображение")
+        image_layout = QVBoxLayout()
         self.image_label = QLabel("Выберите изображение")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setStyleSheet("border: 1px solid black;")
         self.image_label.setFixedSize(1000, 600)
-        self.layout.addWidget(self.image_label)
+        image_layout.addWidget(self.image_label)
+        self.image_group.setLayout(image_layout)
+        main_layout.addWidget(self.image_group)
 
+        self.button_group = QGroupBox("Действия")
         button_layout = QHBoxLayout()
-
         self.select_button = QPushButton("Выбрать изображение")
         self.select_button.clicked.connect(self.select_image)
         button_layout.addWidget(self.select_button)
@@ -78,15 +86,19 @@ class ObjectDetectionApp(QMainWindow):
         self.translate_button.clicked.connect(self.translate_text)
         button_layout.addWidget(self.translate_button)
 
-        self.layout.addLayout(button_layout)
+        self.button_group.setLayout(button_layout)
+        main_layout.addWidget(self.button_group)
 
+        self.result_group = QGroupBox("Результаты")
+        result_layout = QVBoxLayout()
         self.language_selector = QComboBox()
         self.language_selector.addItems(languages.keys())
-        self.layout.addWidget(self.language_selector)
-
+        result_layout.addWidget(self.language_selector)
         self.result_text = QTextEdit()
         self.result_text.setReadOnly(True)
-        self.layout.addWidget(self.result_text)
+        result_layout.addWidget(self.result_text)
+        self.result_group.setLayout(result_layout)
+        main_layout.addWidget(self.result_group)
 
         self.load_selected_model()
 
@@ -122,9 +134,7 @@ class ObjectDetectionApp(QMainWindow):
             return
 
         image = cv2.imread(self.image_path)
-
         results = self.model(image)
-
         annotated_image = results[0].plot()
 
         height, width, channel = annotated_image.shape
@@ -152,7 +162,6 @@ class ObjectDetectionApp(QMainWindow):
 
         try:
             reader = easyocr.Reader(['ru', 'en'], gpu=False)
-
             results = reader.readtext(self.image_path, detail=1)
 
             self.result_text.clear()
