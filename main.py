@@ -2,7 +2,7 @@ import sys
 import cv2
 from deep_translator import GoogleTranslator
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QComboBox, QGroupBox, QStatusBar, QTabWidget, QSlider, QSpinBox
+    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QComboBox, QGroupBox, QStatusBar, QTabWidget, QSlider, QSpinBox, QRadioButton, QButtonGroup
 )
 from PyQt5.QtGui import QPixmap, QImage, QIcon
 from PyQt5.QtCore import Qt
@@ -25,6 +25,23 @@ languages = {
     "Испанский": "es"
 }
 
+light_style = """
+    QMainWindow { background-color: #ffffff; }
+    QLabel, QGroupBox, QPushButton, QStatusBar(), QTabWidget, QTextEdit, QComboBox, QSlider { color: #000000; }
+"""
+
+dark_style = """
+    QMainWindow { background-color: #2b2b2b; }
+    QLabel, QGroupBox, QPushButton, QStatusBar, QTabWidget, QTextEdit, QComboBox, QSlider, QRadioButton { color: #ffffff; }
+    QGroupBox { border: 1px solid #4CAF50; }
+    QPushButton { background-color: #3b3b3b; border: 1px solid #4CAF50; padding: 5px; }
+    QPushButton:hover { background-color: #4CAF50; color: #000000; }
+    QTextEdit, QComboBox, QSlider, QRadioButton { background-color: #3b3b3b; color: #ffffff; }
+    QTabWidget::pane { background-color: #1e1e1e; border: none; }
+    QTabBar::tab { background-color: #2b2b2b; color: #ffffff; padding: 8px; }
+    QTabBar::tab:selected { background-color: #3b3b3b; color: #ffffff; border-bottom: 2px solid #4CAF50; }
+"""
+
 
 def translate_text(text, target_language):
     try:
@@ -45,6 +62,7 @@ class ObjectDetectionApp(QMainWindow):
         self.conf_threshold = 0.5  # Порог уверенности
         self.input_size = 640  # Размер входного изображения
 
+        self.dark_mode = False  # Светлый режим по умолчанию
         # Центральный виджет и основной макет
         self.central_widget = QTabWidget()  # Используем QTabWidget
         self.setCentralWidget(self.central_widget)
@@ -60,6 +78,7 @@ class ObjectDetectionApp(QMainWindow):
         self.init_settings_tab()
 
         self.load_selected_model()
+        self.apply_style()
 
     def init_main_tab(self):
         main_layout = QVBoxLayout(self.main_tab)
@@ -82,7 +101,7 @@ class ObjectDetectionApp(QMainWindow):
         self.image_label = QLabel("Выберите изображение")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setStyleSheet("border: 2px solid #4CAF50; background-color: #f0f0f0;")
-        self.image_label.setFixedSize(1000, 600)
+        self.image_label.setFixedSize(1000, 550)
         image_layout.addWidget(self.image_label)
         self.image_group.setLayout(image_layout)
         main_layout.addWidget(self.image_group)
@@ -148,12 +167,57 @@ class ObjectDetectionApp(QMainWindow):
         conf_group.setLayout(conf_layout)
         settings_layout.addWidget(conf_group)
 
+        # Переключатель режима интерфейса
+        theme_group = QGroupBox("Режим интерфейса")
+        theme_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        theme_layout = QHBoxLayout()
+        self.light_mode_button = QRadioButton("Светлый режим")
+        self.light_mode_button.setChecked(not self.dark_mode)
+        self.light_mode_button.toggled.connect(self.toggle_theme)
+
+        self.dark_mode_button = QRadioButton("Тёмный режим")
+        self.dark_mode_button.setChecked(self.dark_mode)
+        self.dark_mode_button.toggled.connect(self.toggle_theme)
+
+        theme_layout.addWidget(self.light_mode_button)
+        theme_layout.addWidget(self.dark_mode_button)
+        theme_group.setLayout(theme_layout)
+        settings_layout.addWidget(theme_group)
 
         settings_layout.addStretch()
 
     def update_conf_threshold(self, value):
         self.conf_threshold = value / 100.0
         self.status_bar.showMessage(f"Порог уверенности обновлён: {self.conf_threshold:.2f}")
+
+    def toggle_theme(self):
+        self.dark_mode = self.dark_mode_button.isChecked()
+        self.apply_style()
+
+    def apply_style(self):
+        if self.dark_mode:
+            self.setStyleSheet(dark_style)
+            # Устанавливаем темный фон для image_label
+            self.image_label.setStyleSheet("border: 2px solid #4CAF50; background-color: #2b2b2b; color: #ffffff;")
+            # Устанавливаем темный фон для текстового поля результатов
+            self.result_text.setStyleSheet("font-size: 14px; background-color: #3b3b3b; color: #ffffff;")
+            # Устанавливаем стили для вкладок
+            self.central_widget.setStyleSheet(
+                "QTabWidget::pane { background-color: #1e1e1e; border: none; }"
+                "QTabBar::tab { background-color: #2b2b2b; color: #ffffff; padding: 8px; }"
+                "QTabBar::tab:selected { background-color: #3b3b3b; color: #ffffff; border-bottom: 2px solid #4CAF50; }"
+            )
+            self.status_bar.setStyleSheet("background-color: #1e1e1e; color: #ffffff;")
+        else:
+            self.setStyleSheet(light_style)
+            self.image_label.setStyleSheet("border: 2px solid #4CAF50; background-color: #f0f0f0; color: #000000;")
+            self.result_text.setStyleSheet("font-size: 14px; background-color: #f9f9f9; color: #000000;")
+            self.central_widget.setStyleSheet(
+                "QTabWidget::pane { background-color: #ffffff; border: none; }"
+                "QTabBar::tab { background-color: #f0f0f0; color: #000000; padding: 8px; }"
+                "QTabBar::tab:selected { background-color: #e0e0e0; border-bottom: 2px solid #4CAF50; }"
+            )
+            self.status_bar.setStyleSheet("background-color: #ffffff; color: #000000;")
 
     def load_selected_model(self):
         model_name = self.model_selector.currentText()
@@ -167,11 +231,13 @@ class ObjectDetectionApp(QMainWindow):
             self.status_bar.showMessage(f"Ошибка загрузки модели: {e}")
 
     def select_image(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Выберите изображение", "", "Images (*.png *.jpg *.jpeg *.bmp)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Выберите изображение", "",
+                                                   "Images (*.png *.jpg *.jpeg *.bmp)")
         if file_path:
             self.image_path = file_path
             pixmap = QPixmap(self.image_path)
-            self.image_label.setPixmap(pixmap.scaled(self.image_label.width(), self.image_label.height(), Qt.KeepAspectRatio))
+            self.image_label.setPixmap(
+                pixmap.scaled(self.image_label.width(), self.image_label.height(), Qt.KeepAspectRatio))
             self.result_text.clear()
             self.status_bar.showMessage("Изображение выбрано.")
 
@@ -193,7 +259,8 @@ class ObjectDetectionApp(QMainWindow):
         qt_image = QImage(annotated_image.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
 
         pixmap = QPixmap.fromImage(qt_image)
-        self.image_label.setPixmap(pixmap.scaled(self.image_label.width(), self.image_label.height(), Qt.KeepAspectRatio))
+        self.image_label.setPixmap(
+            pixmap.scaled(self.image_label.width(), self.image_label.height(), Qt.KeepAspectRatio))
 
         detected_objects = results[0].boxes.data.cpu().numpy()
         self.result_text.clear()
@@ -202,7 +269,8 @@ class ObjectDetectionApp(QMainWindow):
             for box in detected_objects:
                 x1, y1, x2, y2, confidence, class_id = box
                 class_name = self.model.names[int(class_id)]
-                self.result_text.append(f"- {translate_text(class_name, 'ru')}: {confidence:.2f}, координаты: ({x1:.0f}, {y1:.0f}), ({x2:.0f}, {y2:.0f})")
+                self.result_text.append(
+                    f"- {translate_text(class_name, 'ru')}: {confidence:.2f}, координаты: ({x1:.0f}, {y1:.0f}), ({x2:.0f}, {y2:.0f})")
         else:
             self.result_text.append("Объекты не обнаружены.")
 
@@ -239,7 +307,6 @@ class ObjectDetectionApp(QMainWindow):
             self.result_text.setText(f"Переведённый текст ({selected_language}):\n{translated_text}")
         except Exception as e:
             self.result_text.setText(f"Ошибка перевода текста: {e}")
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
