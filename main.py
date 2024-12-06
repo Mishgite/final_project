@@ -5,9 +5,10 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QComboBox, QGroupBox, QStatusBar, QTabWidget, QSlider, QSpinBox, QRadioButton, QButtonGroup
 )
 from PyQt5.QtGui import QPixmap, QImage, QIcon
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from ultralytics import YOLO
 import easyocr
+import os
 
 model = {
     'YOLOv8 Лёгкая': 'yolov8n.pt',
@@ -51,6 +52,41 @@ def translate_text(text, target_language):
         return f"Ошибка перевода: {e}"
 
 
+class VideoProcessingThread(QThread):
+    frame_processed = pyqtSignal(QImage)
+
+    def __init__(self, model, video_path, conf_threshold, parent=None):
+        super().__init__(parent)
+        self.model = model
+        self.video_path = video_path
+        self.conf_threshold = conf_threshold
+        self.running = True
+
+    def run(self):
+        cap = cv2.VideoCapture(self.video_path)
+
+        while cap.isOpened() and self.running:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Обработка кадра
+            results = self.model.predict(frame, conf=self.conf_threshold)
+            annotated_frame = results[0].plot()
+
+            height, width, channel = annotated_frame.shape
+            bytes_per_line = 3 * width
+            qt_image = QImage(annotated_frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
+
+            self.frame_processed.emit(qt_image)
+
+        cap.release()
+
+    def stop(self):
+        self.running = False
+        self.wait()
+
+
 class ObjectDetectionApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -59,29 +95,35 @@ class ObjectDetectionApp(QMainWindow):
 
         self.model = None
         self.image_path = None
-        self.conf_threshold = 0.5  # Порог уверенности
-        self.input_size = 640  # Размер входного изображения
-
-        self.dark_mode = False  # Светлый режим по умолчанию
+        self.video_path = None
+        self.conf_threshold = 0.5
+        self.input_size = 640
+        self.dark_mode = False
+        self.video_thread = None
         # Центральный виджет и основной макет
         self.central_widget = QTabWidget()  # Используем QTabWidget
         self.setCentralWidget(self.central_widget)
 
         # Вкладки
-        self.main_tab = QWidget()
+        self.image_tab = QWidget()
+        self.video_tab = QWidget()
         self.settings_tab = QWidget()
 
-        self.central_widget.addTab(self.main_tab, "Главная")
+        self.central_widget.addTab(self.image_tab, "Распознавание изображения")
+
+        self.central_widget.addTab(self.video_tab, "Распознавание видео")
+
         self.central_widget.addTab(self.settings_tab, "Настройки")
 
-        self.init_main_tab()
+        self.init_image_tab()
+        self.init_video_tab()
         self.init_settings_tab()
 
         self.load_selected_model()
         self.apply_style()
 
-    def init_main_tab(self):
-        main_layout = QVBoxLayout(self.main_tab)
+    def init_image_tab(self):
+        main_layout = QVBoxLayout(self.image_tab)
 
         # Панель выбора модели
         self.model_group = QGroupBox("Выбор модели")
@@ -146,6 +188,52 @@ class ObjectDetectionApp(QMainWindow):
         result_layout.addWidget(self.result_text)
         self.result_group.setLayout(result_layout)
         main_layout.addWidget(self.result_group)
+
+        # Панель состояния
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+
+    def init_video_tab(self):
+        main_layout = QVBoxLayout(self.video_tab)
+
+        # Панель выбора модели
+        self.model_group = QGroupBox("Выбор модели")
+        self.model_selector = QComboBox()
+        self.model_selector.addItems(model.keys())
+        self.model_selector.currentIndexChanged.connect(self.load_selected_model)
+        model_layout = QVBoxLayout()
+        model_layout.addWidget(self.model_selector)
+        self.model_group.setLayout(model_layout)
+        main_layout.addWidget(self.model_group)
+
+        # Панель видео
+        self.video_group = QGroupBox("Видео")
+        self.video_label = QLabel("Выберите видео")
+        self.video_label.setAlignment(Qt.AlignCenter)
+        self.video_label.setStyleSheet("border: 2px solid #4CAF50; background-color: #f0f0f0;")
+        self.video_label.setFixedSize(1000, 550)
+        video_layout = QVBoxLayout()
+        video_layout.addWidget(self.video_label)
+        self.video_group.setLayout(video_layout)
+        main_layout.addWidget(self.video_group)
+
+        # Кнопки действий
+        self.button_group = QGroupBox("Действия")
+        button_layout = QHBoxLayout()
+        self.select_video_button = QPushButton("Выбрать видео")
+        self.select_video_button.clicked.connect(self.select_video)
+        button_layout.addWidget(self.select_video_button)
+
+        self.start_video_button = QPushButton("Запустить обработку видео")
+        self.start_video_button.clicked.connect(self.process_video)
+        button_layout.addWidget(self.start_video_button)
+
+        self.stop_video_button = QPushButton("Остановить обработку видео")
+        self.stop_video_button.clicked.connect(self.stop_video)
+        button_layout.addWidget(self.stop_video_button)
+
+        self.button_group.setLayout(button_layout)
+        main_layout.addWidget(self.button_group)
 
         # Панель состояния
         self.status_bar = QStatusBar()
@@ -218,6 +306,10 @@ class ObjectDetectionApp(QMainWindow):
                 "QTabBar::tab:selected { background-color: #e0e0e0; border-bottom: 2px solid #4CAF50; }"
             )
             self.status_bar.setStyleSheet("background-color: #ffffff; color: #000000;")
+        self.video_label.setStyleSheet(
+            "border: 2px solid #4CAF50; background-color: #2b2b2b;" if self.dark_mode else
+            "border: 2px solid #4CAF50; background-color: #f0f0f0;"
+        )
 
     def load_selected_model(self):
         model_name = self.model_selector.currentText()
@@ -307,6 +399,45 @@ class ObjectDetectionApp(QMainWindow):
             self.result_text.setText(f"Переведённый текст ({selected_language}):\n{translated_text}")
         except Exception as e:
             self.result_text.setText(f"Ошибка перевода текста: {e}")
+
+    def load_selected_model(self):
+        model_name = self.model_selector.currentText()
+        model_path = model[model_name]
+        try:
+            self.model = YOLO(f'models/{model_path}')
+            self.status_bar.showMessage(f"Модель {model_name} успешно загружена.", 5000)
+        except Exception as e:
+            self.status_bar.showMessage(f"Ошибка загрузки модели: {e}")
+
+    def select_video(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "Выбрать видео", "", "Видео файлы (*.mp4 *.avi *.mov)", options=options)
+        if file_path:
+            self.video_path = file_path
+            self.video_label.setText(f"Выбрано видео: {os.path.basename(file_path)}")
+            self.status_bar.showMessage(f"Видео {os.path.basename(file_path)} успешно загружено.", 5000)
+
+    def process_video(self):
+        if not self.video_path:
+            self.status_bar.showMessage("Пожалуйста, выберите видео для обработки.", 5000)
+            return
+        if not self.model:
+            self.status_bar.showMessage("Пожалуйста, загрузите модель.", 5000)
+            return
+
+        self.video_thread = VideoProcessingThread(self.model, self.video_path, self.conf_threshold)
+        self.video_thread.frame_processed.connect(self.update_video_frame)
+        self.video_thread.start()
+        self.status_bar.showMessage("Обработка видео запущена.", 5000)
+
+    def stop_video(self):
+        if self.video_thread:
+            self.video_thread.stop()
+            self.status_bar.showMessage("Обработка видео остановлена.", 5000)
+
+    def update_video_frame(self, image):
+        self.video_label.setPixmap(QPixmap.fromImage(image))
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
