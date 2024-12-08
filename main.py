@@ -2,11 +2,12 @@ import sys
 import cv2
 from deep_translator import GoogleTranslator
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QComboBox, QGroupBox, QStatusBar, QTabWidget, QSlider, QSpinBox, QRadioButton, QButtonGroup
+    QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QComboBox, QGroupBox, QStatusBar, QTabWidget, QSlider, QSpinBox, QRadioButton, QInputDialog
 )
 from PyQt5.QtGui import QPixmap, QImage, QIcon
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from ultralytics import YOLO
+from moviepy import VideoFileClip, AudioFileClip
 import easyocr
 import os
 
@@ -54,6 +55,7 @@ def translate_text(text, target_language):
 
 class VideoProcessingThread(QThread):
     frame_processed = pyqtSignal(QImage)
+    position_changed = pyqtSignal(int)
 
     def __init__(self, model, video_path, conf_threshold, parent=None):
         super().__init__(parent)
@@ -61,26 +63,99 @@ class VideoProcessingThread(QThread):
         self.video_path = video_path
         self.conf_threshold = conf_threshold
         self.running = True
+        self.paused = False
+        self.current_frame = 0
+        self.total_frames = 0
+        self.writer = None  # For writing video
 
     def run(self):
         cap = cv2.VideoCapture(self.video_path)
 
+        # Check if video file is loaded correctly
+        if not cap.isOpened():
+            print(f"Error: Unable to load video at {self.video_path}")
+            return
+
+        self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        # Temporary output path for the video without audio
+        temp_output_path = "temp_video.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        self.writer = cv2.VideoWriter(temp_output_path, fourcc, fps, (width, height))
+
         while cap.isOpened() and self.running:
+            if self.paused:
+                self.msleep(100)  # Pause
+                continue
+
             ret, frame = cap.read()
             if not ret:
                 break
 
-            # Обработка кадра
             results = self.model.predict(frame, conf=self.conf_threshold)
             annotated_frame = results[0].plot()
+            self.writer.write(annotated_frame)
 
+            # Convert for displaying
             height, width, channel = annotated_frame.shape
             bytes_per_line = 3 * width
             qt_image = QImage(annotated_frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
-
             self.frame_processed.emit(qt_image)
 
+            self.current_frame += 1
+            self.position_changed.emit(self.current_frame)
+
         cap.release()
+        self.writer.release()
+
+        # Add audio to the processed video
+        self.add_audio_to_video(temp_output_path)
+
+    def add_audio_to_video(self, temp_video_path):
+        try:
+            video_clip = VideoFileClip(temp_video_path)
+            original_audio = AudioFileClip(self.video_path)
+            final_clip = video_clip.set_audio(original_audio)
+            final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
+        except Exception as e:
+            print(f"Ошибка обработки видео или аудио: {e}")
+
+    def pause(self):
+        self.paused = True
+
+    def resume(self):
+        self.paused = False
+
+    def seek(self, frame_position):
+        self.current_frame = frame_position
+        self.paused = True
+
+    def stop(self):
+        self.running = False
+        self.wait()
+
+    def add_audio_to_video(self, temp_video_path):
+        try:
+            output_path = "output_video_with_audio.mp4"
+            video_clip = VideoFileClip(temp_video_path)
+            original_audio = AudioFileClip(self.video_path)
+            final_clip = video_clip.set_audio(original_audio)
+            final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
+        except Exception as e:
+            print(f"Ошибка добавления звука: {e}")
+
+    def pause(self):
+        self.paused = True
+
+    def resume(self):
+        self.paused = False
+
+    def seek(self, frame_position):
+        self.current_frame = frame_position
+        self.paused = True
 
     def stop(self):
         self.running = False
@@ -195,13 +270,12 @@ class ObjectDetectionApp(QMainWindow):
 
     def init_video_tab(self):
         main_layout = QVBoxLayout(self.video_tab)
-
-        # Панель выбора модели
         self.model_group = QGroupBox("Выбор модели")
+        self.model_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        model_layout = QVBoxLayout()
         self.model_selector = QComboBox()
         self.model_selector.addItems(model.keys())
         self.model_selector.currentIndexChanged.connect(self.load_selected_model)
-        model_layout = QVBoxLayout()
         model_layout.addWidget(self.model_selector)
         self.model_group.setLayout(model_layout)
         main_layout.addWidget(self.model_group)
@@ -210,32 +284,53 @@ class ObjectDetectionApp(QMainWindow):
         self.video_group = QGroupBox("Видео")
         self.video_label = QLabel("Выберите видео")
         self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setStyleSheet("border: 2px solid #4CAF50; background-color: #f0f0f0;")
         self.video_label.setFixedSize(1000, 550)
         video_layout = QVBoxLayout()
         video_layout.addWidget(self.video_label)
         self.video_group.setLayout(video_layout)
         main_layout.addWidget(self.video_group)
 
-        # Кнопки действий
-        self.button_group = QGroupBox("Действия")
+        # Кнопки управления видео
+        self.button_group = QGroupBox("Управление видео")
         button_layout = QHBoxLayout()
+
         self.select_video_button = QPushButton("Выбрать видео")
         self.select_video_button.clicked.connect(self.select_video)
         button_layout.addWidget(self.select_video_button)
 
-        self.start_video_button = QPushButton("Запустить обработку видео")
+        self.start_video_button = QPushButton("Запустить")
         self.start_video_button.clicked.connect(self.process_video)
         button_layout.addWidget(self.start_video_button)
 
-        self.stop_video_button = QPushButton("Остановить обработку видео")
+        self.pause_video_button = QPushButton("Пауза")
+        self.pause_video_button.clicked.connect(self.pause_video)
+        button_layout.addWidget(self.pause_video_button)
+
+        self.resume_video_button = QPushButton("Продолжить")
+        self.resume_video_button.clicked.connect(self.resume_video)
+        button_layout.addWidget(self.resume_video_button)
+
+        self.seek_video_button = QPushButton("Перемотка")
+        self.seek_video_button.clicked.connect(self.seek_video)
+        button_layout.addWidget(self.seek_video_button)
+
+        self.save_video_button = QPushButton("Сохранить видео")
+        self.save_video_button.clicked.connect(self.save_video)
+        button_layout.addWidget(self.save_video_button)
+
+        self.stop_video_button = QPushButton("Остановить")
         self.stop_video_button.clicked.connect(self.stop_video)
         button_layout.addWidget(self.stop_video_button)
 
         self.button_group.setLayout(button_layout)
         main_layout.addWidget(self.button_group)
 
-        # Панель состояния
+        # Слайдер для перемотки
+        self.video_slider = QSlider(Qt.Horizontal)
+        self.video_slider.setRange(0, 100)
+        self.video_slider.sliderReleased.connect(self.seek_to_position)
+        main_layout.addWidget(self.video_slider)
+
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
@@ -400,22 +495,21 @@ class ObjectDetectionApp(QMainWindow):
         except Exception as e:
             self.result_text.setText(f"Ошибка перевода текста: {e}")
 
-    def load_selected_model(self):
-        model_name = self.model_selector.currentText()
-        model_path = model[model_name]
-        try:
-            self.model = YOLO(f'models/{model_path}')
-            self.status_bar.showMessage(f"Модель {model_name} успешно загружена.", 5000)
-        except Exception as e:
-            self.status_bar.showMessage(f"Ошибка загрузки модели: {e}")
-
     def select_video(self):
         options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getOpenFileName(self, "Выбрать видео", "", "Видео файлы (*.mp4 *.avi *.mov)", options=options)
+        file_path, _ = QFileDialog.getOpenFileName(self, "Выбрать видео", "", "Видео файлы (*.mp4 *.avi *.mov)",
+                                                   options=options)
         if file_path:
             self.video_path = file_path
             self.video_label.setText(f"Выбрано видео: {os.path.basename(file_path)}")
             self.status_bar.showMessage(f"Видео {os.path.basename(file_path)} успешно загружено.", 5000)
+
+    def save_video(self):
+        output_file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить видео", "", "Видео файлы (*.mp4)")
+        if output_file_path:
+            temp_output_path = "output_video_with_audio.mp4"
+            os.rename(temp_output_path, output_file_path)
+            self.status_bar.showMessage(f"Видео сохранено: {output_file_path}", 5000)
 
     def process_video(self):
         if not self.video_path:
@@ -437,6 +531,37 @@ class ObjectDetectionApp(QMainWindow):
 
     def update_video_frame(self, image):
         self.video_label.setPixmap(QPixmap.fromImage(image))
+
+    def pause_video(self):
+        if self.video_thread:
+            self.video_thread.pause()
+            self.status_bar.showMessage("Видео поставлено на паузу.", 5000)
+
+    def resume_video(self):
+        if self.video_thread:
+            self.video_thread.resume()
+            self.status_bar.showMessage("Продолжение обработки видео.", 5000)
+
+    def stop_video(self):
+        if self.video_thread:
+            self.video_thread.stop()
+            self.status_bar.showMessage("Обработка видео остановлена.", 5000)
+
+    def seek_video(self):
+        frame_number, ok = QInputDialog.getInt(self, "Перемотка", "Введите номер кадра:", min=0, max=10000)
+        if ok and self.video_thread:
+            self.video_thread.seek(frame_number)
+
+    def update_video_slider(self, position):
+        if self.video_thread and self.video_thread.total_frames:
+            slider_value = int((position / self.video_thread.total_frames) * 100)
+            self.video_slider.setValue(slider_value)
+
+    def seek_to_position(self):
+        slider_value = self.video_slider.value()
+        if self.video_thread and self.video_thread.total_frames:
+            frame_position = int((slider_value / 100) * self.video_thread.total_frames)
+            self.video_thread.seek(frame_position)
 
 
 if __name__ == "__main__":
