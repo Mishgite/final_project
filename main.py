@@ -8,7 +8,7 @@ from PyQt5.QtGui import QPixmap, QImage, QIcon
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from ultralytics import YOLO
 from moviepy import VideoFileClip, AudioFileClip
-import easyocr
+import ffmpeg
 import os
 
 model = {
@@ -66,14 +66,12 @@ class VideoProcessingThread(QThread):
         self.paused = False
         self.current_frame = 0
         self.total_frames = 0
-        self.writer = None  # For writing video
+        self.writer = None
 
     def run(self):
         cap = cv2.VideoCapture(self.video_path)
-
-        # Check if video file is loaded correctly
         if not cap.isOpened():
-            print(f"Error: Unable to load video at {self.video_path}")
+            print("Ошибка: Невозможно открыть видео.")
             return
 
         self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -81,14 +79,14 @@ class VideoProcessingThread(QThread):
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # Temporary output path for the video without audio
+        # Временный файл для видео без звука
         temp_output_path = "temp_video.mp4"
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         self.writer = cv2.VideoWriter(temp_output_path, fourcc, fps, (width, height))
 
         while cap.isOpened() and self.running:
             if self.paused:
-                self.msleep(100)  # Pause
+                self.msleep(100)
                 continue
 
             ret, frame = cap.read()
@@ -99,7 +97,7 @@ class VideoProcessingThread(QThread):
             annotated_frame = results[0].plot()
             self.writer.write(annotated_frame)
 
-            # Convert for displaying
+            # Отправка кадра в интерфейс
             height, width, channel = annotated_frame.shape
             bytes_per_line = 3 * width
             qt_image = QImage(annotated_frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
@@ -111,51 +109,37 @@ class VideoProcessingThread(QThread):
         cap.release()
         self.writer.release()
 
-        # Add audio to the processed video
+        # Добавляем звук
         self.add_audio_to_video(temp_output_path)
 
     def add_audio_to_video(self, temp_video_path):
         try:
-            video_clip = VideoFileClip(temp_video_path)
-            original_audio = AudioFileClip(self.video_path)
-            final_clip = video_clip.set_audio(original_audio)
-            final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
-        except Exception as e:
-            print(f"Ошибка обработки видео или аудио: {e}")
-
-    def pause(self):
-        self.paused = True
-
-    def resume(self):
-        self.paused = False
-
-    def seek(self, frame_position):
-        self.current_frame = frame_position
-        self.paused = True
-
-    def stop(self):
-        self.running = False
-        self.wait()
-
-    def add_audio_to_video(self, temp_video_path):
-        try:
+            # The output file path where the final video with audio will be saved
             output_path = "output_video_with_audio.mp4"
-            video_clip = VideoFileClip(temp_video_path)
-            original_audio = AudioFileClip(self.video_path)
-            final_clip = video_clip.set_audio(original_audio)
-            final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
+            try:
+                ffmpeg.input(temp_video_path).output(
+                    self.video_path, vcodec='copy', acodec='aac', strict='experimental'
+                ).run(capture_stdout=True, capture_stderr=True)
+            except ffmpeg.Error as e:
+                print("FFmpeg Error:", e.stderr.decode())
+            # Input video (without audio) and audio
+            video_stream = ffmpeg.input(temp_video_path)
+            audio_stream = ffmpeg.input(self.video_path)
+
+
+            # Output with video codec and audio codec copied
+            ffmpeg.output(video_stream, audio_stream, output_path, vcodec='copy', acodec='aac',
+                          strict='experimental').run()
+
+            print(f"Video with audio saved to {output_path}")
         except Exception as e:
-            print(f"Ошибка добавления звука: {e}")
+            print(f"Error processing video or audio: {e}")
 
     def pause(self):
         self.paused = True
 
     def resume(self):
         self.paused = False
-
-    def seek(self, frame_position):
-        self.current_frame = frame_position
-        self.paused = True
 
     def stop(self):
         self.running = False
@@ -506,23 +490,33 @@ class ObjectDetectionApp(QMainWindow):
 
     def save_video(self):
         output_file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить видео", "", "Видео файлы (*.mp4)")
+        temp_output_path = os.path.abspath("temp_video.mp4")  # Убедитесь, что путь абсолютный
         if output_file_path:
-            temp_output_path = "output_video_with_audio.mp4"
-            os.rename(temp_output_path, output_file_path)
-            self.status_bar.showMessage(f"Видео сохранено: {output_file_path}", 5000)
+            if os.path.exists(temp_output_path):
+                try:
+                    os.rename(temp_output_path, output_file_path)
+                    self.status_bar.showMessage(f"Видео сохранено: {output_file_path}", 5000)
+                except OSError as e:
+                    self.status_bar.showMessage(f"Ошибка при сохранении: {e}", 5000)
+            else:
+                self.status_bar.showMessage("Временный файл не найден. Видео не было создано.", 5000)
 
     def process_video(self):
-        if not self.video_path:
-            self.status_bar.showMessage("Пожалуйста, выберите видео для обработки.", 5000)
-            return
-        if not self.model:
-            self.status_bar.showMessage("Пожалуйста, загрузите модель.", 5000)
+        if not self.video_path or not os.path.exists(self.video_path):
+            self.status_bar.showMessage("Пожалуйста, выберите корректное видео.", 5000)
             return
 
-        self.video_thread = VideoProcessingThread(self.model, self.video_path, self.conf_threshold)
-        self.video_thread.frame_processed.connect(self.update_video_frame)
-        self.video_thread.start()
-        self.status_bar.showMessage("Обработка видео запущена.", 5000)
+        if not self.model:
+            self.status_bar.showMessage("Пожалуйста, загрузите модель YOLO.", 5000)
+            return
+
+        try:
+            self.video_thread = VideoProcessingThread(self.model, self.video_path, self.conf_threshold)
+            self.video_thread.frame_processed.connect(self.update_video_frame)
+            self.video_thread.start()
+            self.status_bar.showMessage("Обработка видео начата.", 5000)
+        except Exception as e:
+            self.status_bar.showMessage(f"Ошибка запуска обработки видео: {e}", 5000)
 
     def stop_video(self):
         if self.video_thread:
@@ -541,11 +535,6 @@ class ObjectDetectionApp(QMainWindow):
         if self.video_thread:
             self.video_thread.resume()
             self.status_bar.showMessage("Продолжение обработки видео.", 5000)
-
-    def stop_video(self):
-        if self.video_thread:
-            self.video_thread.stop()
-            self.status_bar.showMessage("Обработка видео остановлена.", 5000)
 
     def seek_video(self):
         frame_number, ok = QInputDialog.getInt(self, "Перемотка", "Введите номер кадра:", min=0, max=10000)
