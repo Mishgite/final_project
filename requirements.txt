@@ -1,0 +1,8 @@
+matplotlib~=3.9.2
+numpy~=1.26.4
+opencv-python~=4.10.0.84
+ffmpeg~=1.4
+PyQt5~=5.15.11
+ultralytics~=8.3.36
+moviepy~=2.1.1
+tensorflow~=2.18.0
