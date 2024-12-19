@@ -9,6 +9,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from ultralytics import YOLO
 from moviepy import VideoFileClip, AudioFileClip
 import ffmpeg
+import easyocr
 import os
 
 model = {

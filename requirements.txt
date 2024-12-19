@@ -5,4 +5,4 @@ ffmpeg~=1.4
 PyQt5~=5.15.11
 ultralytics~=8.3.36
 moviepy~=2.1.1
-tensorflow~=2.18.0
+easyocr~=1.7.2
