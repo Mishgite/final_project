@@ -57,6 +57,7 @@ def translate_text(text, target_language):
 class VideoProcessingThread(QThread):
     frame_processed = pyqtSignal(QImage)
     position_changed = pyqtSignal(int)
+    current_frame_data = None
 
     def __init__(self, model, video_path, conf_threshold, parent=None):
         super().__init__(parent)
@@ -75,16 +76,6 @@ class VideoProcessingThread(QThread):
             print("Ошибка: Невозможно открыть видео.")
             return
 
-        self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-        # Временный файл для видео без звука
-        temp_output_path = "temp_video.mp4"
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        self.writer = cv2.VideoWriter(temp_output_path, fourcc, fps, (width, height))
-
         while cap.isOpened() and self.running:
             if self.paused:
                 self.msleep(100)
@@ -94,24 +85,15 @@ class VideoProcessingThread(QThread):
             if not ret:
                 break
 
+            self.current_frame_data = frame  # Store the current frame data
             results = self.model.predict(frame, conf=self.conf_threshold)
             annotated_frame = results[0].plot()
-            self.writer.write(annotated_frame)
 
-            # Отправка кадра в интерфейс
+            # Convert frame to display in PyQt
             height, width, channel = annotated_frame.shape
             bytes_per_line = 3 * width
             qt_image = QImage(annotated_frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
             self.frame_processed.emit(qt_image)
-
-            self.current_frame += 1
-            self.position_changed.emit(self.current_frame)
-
-        cap.release()
-        self.writer.release()
-
-        # Добавляем звук
-        self.add_audio_to_video(temp_output_path)
 
     def add_audio_to_video(self, temp_video_path):
         try:
@@ -307,6 +289,10 @@ class ObjectDetectionApp(QMainWindow):
         self.stop_video_button.clicked.connect(self.stop_video)
         button_layout.addWidget(self.stop_video_button)
 
+        self.ocr_frame_button = QPushButton("Распознать текст на кадре")
+        self.ocr_frame_button.clicked.connect(self.recognize_text_on_paused_frame)
+        button_layout.addWidget(self.ocr_frame_button)
+
         self.button_group.setLayout(button_layout)
         main_layout.addWidget(self.button_group)
 
@@ -318,6 +304,31 @@ class ObjectDetectionApp(QMainWindow):
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+
+    def recognize_text_on_paused_frame(self):
+        if not self.video_thread or not self.video_thread.paused:
+            self.status_bar.showMessage("Видео не на паузе. Поставьте видео на паузу для распознавания текста.", 5000)
+            return
+
+        frame = self.video_thread.current_frame_data
+        if frame is None:
+            self.result_text.setText("Нет данных текущего кадра для распознавания текста.")
+            return
+
+        try:
+            # Initialize EasyOCR reader
+            reader = easyocr.Reader(['en', 'ru'], gpu=False)  # Adjust languages as needed
+            results = reader.readtext(frame, detail=1)
+
+            self.result_text.clear()
+            if results:
+                self.result_text.append("Распознанный текст:")
+                for bbox, text, confidence in results:
+                    self.result_text.append(f"{text} (доверие: {confidence:.2f})")
+            else:
+                self.result_text.append("Текст не обнаружен.")
+        except Exception as e:
+            self.result_text.setText(f"Ошибка распознавания текста: {e}")
 
     def init_settings_tab(self):
         settings_layout = QVBoxLayout(self.settings_tab)
