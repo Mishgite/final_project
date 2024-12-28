@@ -289,9 +289,15 @@ class ObjectDetectionApp(QMainWindow):
         self.stop_video_button.clicked.connect(self.stop_video)
         button_layout.addWidget(self.stop_video_button)
 
+        self.save_audio_button = QPushButton("Сохранить звук")
+        self.save_audio_button.clicked.connect(self.save_audio)
+        button_layout.addWidget(self.save_audio_button)
+
         self.ocr_frame_button = QPushButton("Распознать текст на кадре")
         self.ocr_frame_button.clicked.connect(self.recognize_text_on_paused_frame)
         button_layout.addWidget(self.ocr_frame_button)
+
+        self.kgjrgg = QPushButton
 
         self.button_group.setLayout(button_layout)
         main_layout.addWidget(self.button_group)
@@ -490,6 +496,23 @@ class ObjectDetectionApp(QMainWindow):
             self.result_text.setText(f"Переведённый текст ({selected_language}):\n{translated_text}")
         except Exception as e:
             self.result_text.setText(f"Ошибка перевода текста: {e}")
+
+    def save_audio(self):
+        if not self.video_path or not os.path.exists(self.video_path):
+            self.status_bar.showMessage("Пожалуйста, выберите видео для сохранения звука.", 5000)
+            return
+
+        # Ask for the audio output file path
+        output_audio_path, _ = QFileDialog.getSaveFileName(self, "Сохранить звук", "", "Аудиофайлы (*.mp3 *.wav)")
+        if not output_audio_path:
+            return
+
+        try:
+            video = VideoFileClip(self.video_path)
+            video.audio.write_audiofile(output_audio_path)
+            self.status_bar.showMessage(f"Звук сохранен: {output_audio_path}", 5000)
+        except Exception as e:
+            self.status_bar.showMessage(f"Ошибка сохранения звука: {e}", 5000)
 
     def select_video(self):
         options = QFileDialog.Options()
