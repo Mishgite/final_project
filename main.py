@@ -214,6 +214,14 @@ class ObjectDetectionApp(QMainWindow):
         self.translate_button.clicked.connect(self.translate_text)
         button_layout.addWidget(self.translate_button)
 
+        self.save_text_button = QPushButton("Сохранить текст")
+        self.save_text_button.clicked.connect(self.save_recognized_text)
+        button_layout.addWidget(self.save_text_button)
+
+        self.save_image_button = QPushButton("Сохранить изображение")
+        self.save_image_button.clicked.connect(self.save_annotated_image)
+        button_layout.addWidget(self.save_image_button)
+
         self.button_group.setLayout(button_layout)
         main_layout.addWidget(self.button_group)
 
@@ -443,10 +451,14 @@ class ObjectDetectionApp(QMainWindow):
         results = self.model.predict(image, conf=self.conf_threshold, imgsz=self.input_size)
         annotated_image = results[0].plot()
 
+        # Сохраняем аннотированное изображение для последующего сохранения
+        self.annotated_image = cv2.cvtColor(annotated_image,
+                                            cv2.COLOR_RGB2BGR)  # Преобразование в формат BGR для OpenCV
+
+        # Отображаем изображение
         height, width, channel = annotated_image.shape
         bytes_per_line = 3 * width
         qt_image = QImage(annotated_image.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
-
         pixmap = QPixmap.fromImage(qt_image)
         self.image_label.setPixmap(
             pixmap.scaled(self.image_label.width(), self.image_label.height(), Qt.KeepAspectRatio))
@@ -496,6 +508,33 @@ class ObjectDetectionApp(QMainWindow):
             self.result_text.setText(f"Переведённый текст ({selected_language}):\n{translated_text}")
         except Exception as e:
             self.result_text.setText(f"Ошибка перевода текста: {e}")
+
+    def save_recognized_text(self):
+        if not self.result_text.toPlainText().strip():
+            self.status_bar.showMessage("Нет текста для сохранения.", 5000)
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить текст", "", "Text Files (*.txt)")
+        if file_path:
+            try:
+                with open(file_path, "w", encoding="utf-8") as file:
+                    file.write(self.result_text.toPlainText())
+                self.status_bar.showMessage(f"Текст успешно сохранен в {file_path}.", 5000)
+            except Exception as e:
+                self.status_bar.showMessage(f"Ошибка сохранения текста: {e}", 5000)
+
+    def save_annotated_image(self):
+        if not hasattr(self, 'annotated_image') or self.annotated_image is None:
+            self.status_bar.showMessage("Нет изображения для сохранения.", 5000)
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить изображение", "", "Images (*.png *.jpg *.bmp)")
+        if file_path:
+            try:
+                cv2.imwrite(file_path, self.annotated_image)
+                self.status_bar.showMessage(f"Изображение успешно сохранено в {file_path}.", 5000)
+            except Exception as e:
+                self.status_bar.showMessage(f"Ошибка сохранения изображения: {e}", 5000)
 
     def save_audio(self):
         if not self.video_path or not os.path.exists(self.video_path):
