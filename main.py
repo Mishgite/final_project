@@ -10,6 +10,7 @@ from ultralytics import YOLO
 from moviepy import VideoFileClip, AudioFileClip
 import ffmpeg
 import easyocr
+import speech_recognition as sr
 import os
 
 model = {
@@ -155,10 +156,12 @@ class ObjectDetectionApp(QMainWindow):
 
         self.central_widget.addTab(self.video_tab, "Распознавание видео")
 
+
         self.central_widget.addTab(self.settings_tab, "Настройки")
 
         self.init_image_tab()
         self.init_video_tab()
+        self.init_audio_tab()
         self.init_settings_tab()
 
         self.load_selected_model()
@@ -318,6 +321,40 @@ class ObjectDetectionApp(QMainWindow):
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+
+    def init_audio_tab(self):
+        self.audio_tab = QWidget()
+        main_layout = QVBoxLayout(self.audio_tab)
+
+        # Панель действий
+        self.audio_action_group = QGroupBox("Действия")
+        button_layout = QHBoxLayout()
+
+        self.select_audio_button = QPushButton("Выбрать аудио")
+        self.select_audio_button.clicked.connect(self.select_audio)
+        button_layout.addWidget(self.select_audio_button)
+
+        self.recognize_audio_button = QPushButton("Распознать речь")
+        self.recognize_audio_button.clicked.connect(self.recognize_audio)
+        button_layout.addWidget(self.recognize_audio_button)
+
+        self.save_audio_text_button = QPushButton("Сохранить текст")
+        self.save_audio_text_button.clicked.connect(self.save_recognized_audio_text)
+        button_layout.addWidget(self.save_audio_text_button)
+
+        self.audio_action_group.setLayout(button_layout)
+        main_layout.addWidget(self.audio_action_group)
+
+        # Текст результатов
+        self.audio_result_group = QGroupBox("Результаты")
+        result_layout = QVBoxLayout()
+        self.audio_result_text = QTextEdit()
+        self.audio_result_text.setReadOnly(True)
+        result_layout.addWidget(self.audio_result_text)
+        self.audio_result_group.setLayout(result_layout)
+        main_layout.addWidget(self.audio_result_group)
+
+        self.central_widget.addTab(self.audio_tab, "Распознавание звука")
 
     def recognize_text_on_paused_frame(self):
         if not self.video_thread or not self.video_thread.paused:
@@ -508,6 +545,44 @@ class ObjectDetectionApp(QMainWindow):
             self.result_text.setText(f"Переведённый текст ({selected_language}):\n{translated_text}")
         except Exception as e:
             self.result_text.setText(f"Ошибка перевода текста: {e}")
+
+    def select_audio(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "Выбрать аудио", "", "Аудиофайлы (*.wav *.mp3)",
+                                                   options=options)
+        if file_path:
+            self.audio_path = file_path
+            self.status_bar.showMessage(f"Выбрано аудио: {os.path.basename(file_path)}", 5000)
+
+    def recognize_audio(self):
+        if not hasattr(self, 'audio_path') or not self.audio_path:
+            self.status_bar.showMessage("Сначала выберите аудиофайл.", 5000)
+            return
+
+        recognizer = sr.Recognizer()
+        try:
+            with sr.AudioFile(self.audio_path) as source:
+                audio_data = recognizer.record(source)
+                recognized_text = recognizer.recognize_google(audio_data, language='ru-RU')  # Язык можно изменить
+                self.audio_result_text.setPlainText(recognized_text)
+                self.status_bar.showMessage("Распознавание речи завершено.", 5000)
+        except Exception as e:
+            self.audio_result_text.setPlainText(f"Ошибка распознавания: {e}")
+            self.status_bar.showMessage(f"Ошибка распознавания: {e}", 5000)
+
+    def save_recognized_audio_text(self):
+        if not self.audio_result_text.toPlainText().strip():
+            self.status_bar.showMessage("Нет текста для сохранения.", 5000)
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить текст", "", "Text Files (*.txt)")
+        if file_path:
+            try:
+                with open(file_path, "w", encoding="utf-8") as file:
+                    file.write(self.audio_result_text.toPlainText())
+                self.status_bar.showMessage(f"Текст успешно сохранен в {file_path}.", 5000)
+            except Exception as e:
+                self.status_bar.showMessage(f"Ошибка сохранения текста: {e}", 5000)
 
     def save_recognized_text(self):
         if not self.result_text.toPlainText().strip():
