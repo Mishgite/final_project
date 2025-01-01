@@ -73,29 +73,51 @@ class VideoProcessingThread(QThread):
         self.writer = None
 
     def run(self):
-        cap = cv2.VideoCapture(self.video_path)
-        if not cap.isOpened():
-            print("Ошибка: Невозможно открыть видео.")
-            return
+        try:
+            cap = cv2.VideoCapture(self.video_path)
+            if not cap.isOpened():
+                print("Ошибка: Невозможно открыть видео.")
+                return
 
-        while cap.isOpened() and self.running:
-            if self.paused:
-                self.msleep(100)
-                continue
+            self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = int(cap.get(cv2.CAP_PROP_FPS))
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-            ret, frame = cap.read()
-            if not ret:
-                break
+            temp_output_path = "temp_video.mp4"
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self.writer = cv2.VideoWriter(temp_output_path, fourcc, fps, (width, height))
 
-            self.current_frame_data = frame  # Store the current frame data
-            results = self.model.predict(frame, conf=self.conf_threshold)
-            annotated_frame = results[0].plot()
+            while cap.isOpened() and self.running:
+                if self.paused:
+                    self.msleep(100)
+                    continue
 
-            # Convert frame to display in PyQt
-            height, width, channel = annotated_frame.shape
-            bytes_per_line = 3 * width
-            qt_image = QImage(annotated_frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
-            self.frame_processed.emit(qt_image)
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                results = self.model.predict(frame, conf=self.conf_threshold)
+                annotated_frame = results[0].plot()
+                self.writer.write(annotated_frame)
+
+                height, width, channel = annotated_frame.shape
+                bytes_per_line = 3 * width
+                qt_image = QImage(annotated_frame.data, width, height, bytes_per_line,
+                                  QImage.Format_RGB888).rgbSwapped()
+                self.frame_processed.emit(qt_image)
+
+                self.current_frame += 1
+                self.position_changed.emit(self.current_frame)
+
+            cap.release()
+            self.writer.release()
+
+            # Добавляем звук к обработанному видео
+            #self.add_audio_to_video(temp_output_path)
+
+        except Exception as e:
+            print(f"Ошибка во время выполнения обработки видео: {e}")
 
     def add_audio_to_video(self, temp_video_path):
         try:
