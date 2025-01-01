@@ -11,6 +11,7 @@ from moviepy import VideoFileClip, AudioFileClip
 import ffmpeg
 import easyocr
 import speech_recognition as sr
+from pydub import AudioSegment
 import os
 
 model = {
@@ -496,6 +497,7 @@ class ObjectDetectionApp(QMainWindow):
         height, width, channel = annotated_image.shape
         bytes_per_line = 3 * width
         qt_image = QImage(annotated_image.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
+
         pixmap = QPixmap.fromImage(qt_image)
         self.image_label.setPixmap(
             pixmap.scaled(self.image_label.width(), self.image_label.height(), Qt.KeepAspectRatio))
@@ -560,10 +562,12 @@ class ObjectDetectionApp(QMainWindow):
             return
 
         recognizer = sr.Recognizer()
+        sound = AudioSegment.from_mp3(self.audio_path)
+        sound.export("result.wav", format="wav")
         try:
-            with sr.AudioFile(self.audio_path) as source:
+            with sr.AudioFile("result.wav") as source:
                 audio_data = recognizer.record(source)
-                recognized_text = recognizer.recognize_google(audio_data, language='ru-RU')  # Язык можно изменить
+                recognized_text = recognizer.recognize_google(audio_data, language='ru-RU')
                 self.audio_result_text.setPlainText(recognized_text)
                 self.status_bar.showMessage("Распознавание речи завершено.", 5000)
         except Exception as e:
