@@ -9,6 +9,9 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from ultralytics import YOLO
 from moviepy import VideoFileClip, AudioFileClip
 import ffmpeg
+import easyocr
+import speech_recognition as sr
+from pydub import AudioSegment
 import os
 
 model = {
@@ -56,6 +59,7 @@ def translate_text(text, target_language):
 class VideoProcessingThread(QThread):
     frame_processed = pyqtSignal(QImage)
     position_changed = pyqtSignal(int)
+    current_frame_data = None
 
     def __init__(self, model, video_path, conf_threshold, parent=None):
         super().__init__(parent)
@@ -110,39 +114,33 @@ class VideoProcessingThread(QThread):
             self.writer.release()
 
             # Добавляем звук к обработанному видео
-            self.add_audio_to_video(temp_output_path)
+            #self.add_audio_to_video(temp_output_path)
 
         except Exception as e:
             print(f"Ошибка во время выполнения обработки видео: {e}")
 
     def add_audio_to_video(self, temp_video_path):
-        output_path = "output_video_with_audio.mp4"
-        if not os.path.exists(temp_video_path):
-            print(f"Ошибка: Временный файл {temp_video_path} не существует.")
-            return
+        try:
+            # The output file path where the final video with audio will be saved
+            output_path = "output_video_with_audio.mp4"
+            try:
+                ffmpeg.input(temp_video_path).output(
+                    self.video_path, vcodec='copy', acodec='aac', strict='experimental'
+                ).run(capture_stdout=True, capture_stderr=True)
+            except ffmpeg.Error as e:
+                print("FFmpeg Error:", e.stderr.decode())
+            # Input video (without audio) and audio
+            video_stream = ffmpeg.input(temp_video_path)
+            audio_stream = ffmpeg.input(self.video_path)
 
-        if not os.path.exists(self.video_path):
-            print(f"Ошибка: Исходный файл {self.video_path} не существует.")
-            return
 
-        print(f"Начинается объединение видео и аудио...")
+            # Output with video codec and audio codec copied
+            ffmpeg.output(video_stream, audio_stream, output_path, vcodec='copy', acodec='aac',
+                          strict='experimental').run()
 
-        video_stream = ffmpeg.input(temp_video_path)
-        audio_stream = ffmpeg.input(self.video_path).audio
-
-        ffmpeg.output(
-            video_stream,
-            audio_stream,
-            output_path,
-            vcodec='copy',
-            acodec='aac',
-            strict='experimental'
-        ).run()
-
-        if os.path.exists(output_path):
-            print(f"Видео с аудио успешно создано: {output_path}")
-        else:
-            print(f"Ошибка: Файл {output_path} не был создан.")
+            print(f"Video with audio saved to {output_path}")
+        except Exception as e:
+            print(f"Error processing video or audio: {e}")
 
     def pause(self):
         self.paused = True
@@ -181,10 +179,12 @@ class ObjectDetectionApp(QMainWindow):
 
         self.central_widget.addTab(self.video_tab, "Распознавание видео")
 
+
         self.central_widget.addTab(self.settings_tab, "Настройки")
 
         self.init_image_tab()
         self.init_video_tab()
+        self.init_audio_tab()
         self.init_settings_tab()
 
         self.load_selected_model()
@@ -239,6 +239,14 @@ class ObjectDetectionApp(QMainWindow):
         self.translate_button.setIcon(QIcon("icons/translate.png"))
         self.translate_button.clicked.connect(self.translate_text)
         button_layout.addWidget(self.translate_button)
+
+        self.save_text_button = QPushButton("Сохранить текст")
+        self.save_text_button.clicked.connect(self.save_recognized_text)
+        button_layout.addWidget(self.save_text_button)
+
+        self.save_image_button = QPushButton("Сохранить изображение")
+        self.save_image_button.clicked.connect(self.save_annotated_image)
+        button_layout.addWidget(self.save_image_button)
 
         self.button_group.setLayout(button_layout)
         main_layout.addWidget(self.button_group)
@@ -315,6 +323,16 @@ class ObjectDetectionApp(QMainWindow):
         self.stop_video_button.clicked.connect(self.stop_video)
         button_layout.addWidget(self.stop_video_button)
 
+        self.save_audio_button = QPushButton("Сохранить звук")
+        self.save_audio_button.clicked.connect(self.save_audio)
+        button_layout.addWidget(self.save_audio_button)
+
+        self.ocr_frame_button = QPushButton("Распознать текст на кадре")
+        self.ocr_frame_button.clicked.connect(self.recognize_text_on_paused_frame)
+        button_layout.addWidget(self.ocr_frame_button)
+
+        self.kgjrgg = QPushButton
+
         self.button_group.setLayout(button_layout)
         main_layout.addWidget(self.button_group)
 
@@ -326,6 +344,65 @@ class ObjectDetectionApp(QMainWindow):
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+
+    def init_audio_tab(self):
+        self.audio_tab = QWidget()
+        main_layout = QVBoxLayout(self.audio_tab)
+
+        # Панель действий
+        self.audio_action_group = QGroupBox("Действия")
+        button_layout = QHBoxLayout()
+
+        self.select_audio_button = QPushButton("Выбрать аудио")
+        self.select_audio_button.clicked.connect(self.select_audio)
+        button_layout.addWidget(self.select_audio_button)
+
+        self.recognize_audio_button = QPushButton("Распознать речь")
+        self.recognize_audio_button.clicked.connect(self.recognize_audio)
+        button_layout.addWidget(self.recognize_audio_button)
+
+        self.save_audio_text_button = QPushButton("Сохранить текст")
+        self.save_audio_text_button.clicked.connect(self.save_recognized_audio_text)
+        button_layout.addWidget(self.save_audio_text_button)
+
+        self.audio_action_group.setLayout(button_layout)
+        main_layout.addWidget(self.audio_action_group)
+
+        # Текст результатов
+        self.audio_result_group = QGroupBox("Результаты")
+        result_layout = QVBoxLayout()
+        self.audio_result_text = QTextEdit()
+        self.audio_result_text.setReadOnly(True)
+        result_layout.addWidget(self.audio_result_text)
+        self.audio_result_group.setLayout(result_layout)
+        main_layout.addWidget(self.audio_result_group)
+
+        self.central_widget.addTab(self.audio_tab, "Распознавание звука")
+
+    def recognize_text_on_paused_frame(self):
+        if not self.video_thread or not self.video_thread.paused:
+            self.status_bar.showMessage("Видео не на паузе. Поставьте видео на паузу для распознавания текста.", 5000)
+            return
+
+        frame = self.video_thread.current_frame_data
+        if frame is None:
+            self.result_text.setText("Нет данных текущего кадра для распознавания текста.")
+            return
+
+        try:
+            # Initialize EasyOCR reader
+            reader = easyocr.Reader(['en', 'ru'], gpu=False)  # Adjust languages as needed
+            results = reader.readtext(frame, detail=1)
+
+            self.result_text.clear()
+            if results:
+                self.result_text.append("Распознанный текст:")
+                for bbox, text, confidence in results:
+                    self.result_text.append(f"{text} (доверие: {confidence:.2f})")
+            else:
+                self.result_text.append("Текст не обнаружен.")
+        except Exception as e:
+            self.result_text.setText(f"Ошибка распознавания текста: {e}")
 
     def init_settings_tab(self):
         settings_layout = QVBoxLayout(self.settings_tab)
@@ -434,6 +511,11 @@ class ObjectDetectionApp(QMainWindow):
         results = self.model.predict(image, conf=self.conf_threshold, imgsz=self.input_size)
         annotated_image = results[0].plot()
 
+        # Сохраняем аннотированное изображение для последующего сохранения
+        self.annotated_image = cv2.cvtColor(annotated_image,
+                                            cv2.COLOR_RGB2BGR)  # Преобразование в формат BGR для OpenCV
+
+        # Отображаем изображение
         height, width, channel = annotated_image.shape
         bytes_per_line = 3 * width
         qt_image = QImage(annotated_image.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
@@ -487,6 +569,90 @@ class ObjectDetectionApp(QMainWindow):
             self.result_text.setText(f"Переведённый текст ({selected_language}):\n{translated_text}")
         except Exception as e:
             self.result_text.setText(f"Ошибка перевода текста: {e}")
+
+    def select_audio(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "Выбрать аудио", "", "Аудиофайлы (*.wav *.mp3)",
+                                                   options=options)
+        if file_path:
+            self.audio_path = file_path
+            self.status_bar.showMessage(f"Выбрано аудио: {os.path.basename(file_path)}", 5000)
+
+    def recognize_audio(self):
+        if not hasattr(self, 'audio_path') or not self.audio_path:
+            self.status_bar.showMessage("Сначала выберите аудиофайл.", 5000)
+            return
+
+        recognizer = sr.Recognizer()
+        sound = AudioSegment.from_mp3(self.audio_path)
+        sound.export("result.wav", format="wav")
+        try:
+            with sr.AudioFile("result.wav") as source:
+                audio_data = recognizer.record(source)
+                recognized_text = recognizer.recognize_google(audio_data, language='ru-RU')
+                self.audio_result_text.setPlainText(recognized_text)
+                self.status_bar.showMessage("Распознавание речи завершено.", 5000)
+        except Exception as e:
+            self.audio_result_text.setPlainText(f"Ошибка распознавания: {e}")
+            self.status_bar.showMessage(f"Ошибка распознавания: {e}", 5000)
+
+    def save_recognized_audio_text(self):
+        if not self.audio_result_text.toPlainText().strip():
+            self.status_bar.showMessage("Нет текста для сохранения.", 5000)
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить текст", "", "Text Files (*.txt)")
+        if file_path:
+            try:
+                with open(file_path, "w", encoding="utf-8") as file:
+                    file.write(self.audio_result_text.toPlainText())
+                self.status_bar.showMessage(f"Текст успешно сохранен в {file_path}.", 5000)
+            except Exception as e:
+                self.status_bar.showMessage(f"Ошибка сохранения текста: {e}", 5000)
+
+    def save_recognized_text(self):
+        if not self.result_text.toPlainText().strip():
+            self.status_bar.showMessage("Нет текста для сохранения.", 5000)
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить текст", "", "Text Files (*.txt)")
+        if file_path:
+            try:
+                with open(file_path, "w", encoding="utf-8") as file:
+                    file.write(self.result_text.toPlainText())
+                self.status_bar.showMessage(f"Текст успешно сохранен в {file_path}.", 5000)
+            except Exception as e:
+                self.status_bar.showMessage(f"Ошибка сохранения текста: {e}", 5000)
+
+    def save_annotated_image(self):
+        if not hasattr(self, 'annotated_image') or self.annotated_image is None:
+            self.status_bar.showMessage("Нет изображения для сохранения.", 5000)
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить изображение", "", "Images (*.png *.jpg *.bmp)")
+        if file_path:
+            try:
+                cv2.imwrite(file_path, self.annotated_image)
+                self.status_bar.showMessage(f"Изображение успешно сохранено в {file_path}.", 5000)
+            except Exception as e:
+                self.status_bar.showMessage(f"Ошибка сохранения изображения: {e}", 5000)
+
+    def save_audio(self):
+        if not self.video_path or not os.path.exists(self.video_path):
+            self.status_bar.showMessage("Пожалуйста, выберите видео для сохранения звука.", 5000)
+            return
+
+        # Ask for the audio output file path
+        output_audio_path, _ = QFileDialog.getSaveFileName(self, "Сохранить звук", "", "Аудиофайлы (*.mp3 *.wav)")
+        if not output_audio_path:
+            return
+
+        try:
+            video = VideoFileClip(self.video_path)
+            video.audio.write_audiofile(output_audio_path)
+            self.status_bar.showMessage(f"Звук сохранен: {output_audio_path}", 5000)
+        except Exception as e:
+            self.status_bar.showMessage(f"Ошибка сохранения звука: {e}", 5000)
 
     def select_video(self):
         options = QFileDialog.Options()

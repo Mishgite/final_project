@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QPixmap, QImage, QIcon
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from ultralytics import YOLO
-from moviepy import VideoFileClip, AudioFileClip
+from moviepy import VideoFileClip
 import ffmpeg
 import easyocr
 import speech_recognition as sr
