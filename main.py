@@ -56,6 +56,7 @@ def translate_text(text, target_language):
         return f"Ошибка перевода: {e}"
 
 
+# Класс для распознавания объектов на видео
 class VideoProcessingThread(QThread):
     frame_processed = pyqtSignal(QImage)
     position_changed = pyqtSignal(int)
@@ -153,6 +154,7 @@ class VideoProcessingThread(QThread):
         self.wait()
 
 
+# Главная страница с макетом приложения
 class ObjectDetectionApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -178,7 +180,6 @@ class ObjectDetectionApp(QMainWindow):
         self.central_widget.addTab(self.image_tab, "Распознавание изображения")
 
         self.central_widget.addTab(self.video_tab, "Распознавание видео")
-
 
         self.central_widget.addTab(self.settings_tab, "Настройки")
 
