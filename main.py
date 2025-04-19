@@ -10,6 +10,7 @@ from ultralytics import YOLO
 from moviepy import VideoFileClip
 import ffmpeg
 import easyocr
+import torch
 import speech_recognition as sr
 from pydub import AudioSegment
 import os
@@ -45,6 +46,14 @@ dark_style = """
     QTabWidget::pane { background-color: #1e1e1e; border: none; }
     QTabBar::tab { background-color: #2b2b2b; color: #ffffff; padding: 8px; }
     QTabBar::tab:selected { background-color: #3b3b3b; color: #ffffff; border-bottom: 2px solid #4CAF50; }
+    QRadioButton::indicator {
+        width: 16px;
+        height: 16px;
+    }
+    QRadioButton::indicator::checked {
+        background-color: #4CAF50;
+        border: 2px solid #ffffff;
+    }
 """
 
 
@@ -159,6 +168,7 @@ class ObjectDetectionApp(QMainWindow):
         self.setWindowTitle("Распознавание объектов и текста")
         self.setGeometry(0, 0, 1200, 800)
 
+        self.device = 'cpu'
         self.model = None
         self.image_path = None
         self.video_path = None
@@ -192,7 +202,7 @@ class ObjectDetectionApp(QMainWindow):
 
     def init_image_tab(self):
         main_layout = QVBoxLayout(self.image_tab)
-
+        '''
         # Панель выбора модели
         self.model_group = QGroupBox("Выбор модели")
         self.model_group.setStyleSheet("QGroupBox { font-weight: bold; }")
@@ -203,6 +213,7 @@ class ObjectDetectionApp(QMainWindow):
         model_layout.addWidget(self.model_selector)
         self.model_group.setLayout(model_layout)
         main_layout.addWidget(self.model_group)
+        '''
 
         # Панель изображения
         self.image_group = QGroupBox("Изображение")
@@ -271,16 +282,19 @@ class ObjectDetectionApp(QMainWindow):
 
     def init_video_tab(self):
         main_layout = QVBoxLayout(self.video_tab)
+        '''
         self.model_group = QGroupBox("Выбор модели")
         self.model_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         model_layout = QVBoxLayout()
+        
         self.model_selector = QComboBox()
         self.model_selector.addItems(model.keys())
         self.model_selector.currentIndexChanged.connect(self.load_selected_model)
+        
         model_layout.addWidget(self.model_selector)
         self.model_group.setLayout(model_layout)
         main_layout.addWidget(self.model_group)
-
+        '''
         # Панель видео
         self.video_group = QGroupBox("Видео")
         self.video_label = QLabel("Выберите видео")
@@ -407,6 +421,30 @@ class ObjectDetectionApp(QMainWindow):
     def init_settings_tab(self):
         settings_layout = QVBoxLayout(self.settings_tab)
 
+        self.model_group = QGroupBox("Выбор модели")
+        self.model_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        model_layout = QVBoxLayout()
+        self.model_selector = QComboBox()
+        self.model_selector.addItems(model.keys())
+        self.model_selector.currentIndexChanged.connect(self.load_selected_model)
+        model_layout.addWidget(self.model_selector)
+        self.model_group.setLayout(model_layout)
+        settings_layout.addWidget(self.model_group)
+
+        device_group = QGroupBox("Режим работы")
+        device_layout = QHBoxLayout()
+
+        self.cpu_radio = QRadioButton("CPU")
+        self.cpu_radio.setChecked(True)
+        self.gpu_radio = QRadioButton("GPU")
+        self.gpu_radio.setEnabled(torch.cuda.is_available())  # Активируем только если CUDA доступна
+
+        device_layout.addWidget(self.cpu_radio)
+        device_layout.addWidget(self.gpu_radio)
+        device_group.setLayout(device_layout)
+
+        settings_layout.addWidget(device_group)
+
         # Настройка порога
         conf_group = QGroupBox("Порог уверенности")
         conf_group.setStyleSheet("QGroupBox { font-weight: bold; }")
@@ -479,13 +517,16 @@ class ObjectDetectionApp(QMainWindow):
     def load_selected_model(self):
         model_name = self.model_selector.currentText()
         model_path = model[model_name]
-        self.status_bar.showMessage(f"Загрузка модели: {model_name}...")
+
+        # Определяем устройство
+        self.device = 'cuda' if self.gpu_radio.isChecked() and torch.cuda.is_available() else 'cpu'
 
         try:
-            self.model = YOLO(f'models/{model_path}')
-            self.status_bar.showMessage(f"Модель {model_name} успешно загружена.", 5000)
+            self.model = YOLO(f'models/{model_path}').to(self.device)
+            status_msg = f"Модель {model_name} загружена на {'GPU' if self.device == 'cuda' else 'CPU'}"
+            self.status_bar.showMessage(status_msg, 5000)
         except Exception as e:
-            self.status_bar.showMessage(f"Ошибка загрузки модели: {e}")
+            self.status_bar.showMessage(f"Ошибка загрузки: {e}")
 
     def select_image(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Выберите изображение", "",
@@ -508,7 +549,9 @@ class ObjectDetectionApp(QMainWindow):
             return
 
         image = cv2.imread(self.image_path)
-        results = self.model.predict(image, conf=self.conf_threshold, imgsz=self.input_size)
+        results = self.model.predict(image, conf=self.conf_threshold,
+                                     imgsz=self.input_size,
+                                     device=self.device)
         annotated_image = results[0].plot()
 
         # Сохраняем аннотированное изображение для последующего сохранения
@@ -686,7 +729,9 @@ class ObjectDetectionApp(QMainWindow):
             return
 
         try:
-            self.video_thread = VideoProcessingThread(self.model, self.video_path, self.conf_threshold)
+            self.video_thread = VideoProcessingThread(self.model.to(self.device), self.video_path,
+                self.conf_threshold
+            )
             self.video_thread.frame_processed.connect(self.update_video_frame)
             self.video_thread.start()
             self.status_bar.showMessage("Обработка видео начата.", 5000)
