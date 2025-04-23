@@ -197,7 +197,6 @@ class ObjectDetectionApp(QMainWindow):
         self.init_audio_tab()
         self.init_settings_tab()
 
-        self.load_selected_model()
         self.apply_style()
 
     def init_image_tab(self):
@@ -431,19 +430,6 @@ class ObjectDetectionApp(QMainWindow):
         self.model_group.setLayout(model_layout)
         settings_layout.addWidget(self.model_group)
 
-        device_group = QGroupBox("Режим работы")
-        device_layout = QHBoxLayout()
-
-        self.cpu_radio = QRadioButton("CPU")
-        self.cpu_radio.setChecked(True)
-        self.gpu_radio = QRadioButton("GPU")
-        self.gpu_radio.setEnabled(torch.cuda.is_available())  # Активируем только если CUDA доступна
-
-        device_layout.addWidget(self.cpu_radio)
-        device_layout.addWidget(self.gpu_radio)
-        device_group.setLayout(device_layout)
-
-        settings_layout.addWidget(device_group)
 
         # Настройка порога
         conf_group = QGroupBox("Порог уверенности")
